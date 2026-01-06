@@ -25,7 +25,8 @@ char *nomcartes[]=
   "inspector Hopkins", "Sherlock Holmes", "John Watson", "Mycroft Holmes",
   "Mrs. Hudson", "Mary Morstan", "James Moriarty"};
 int joueurCourant;//quel joueurs doit jouer
-
+int joueur_restant;//combien de joueurs ne sont pas éliminés
+int eliminated[4];//liste des joueurs éliminés
 void error(const char *msg)
 {
     perror(msg);
@@ -209,6 +210,15 @@ void broadcastMessage(char *mess)//envoiyer le même message à tout le monde
                         mess);
 }
 
+//retroune le prochain joueur
+int nextPlayer(int current){
+	int p = (current + 1) % 4;
+	while(eliminated[p]){
+		p = (p + 1) % 4;
+	}
+	return p;
+}
+
 int main(int argc, char *argv[])
 {
      int sockfd, newsockfd, portno;
@@ -216,7 +226,8 @@ int main(int argc, char *argv[])
      char buffer[256];
      struct sockaddr_in serv_addr, cli_addr;
      int n;
-	int i;
+	int i, j;
+	joueur_restant = 4;
 
         char com;
         char clientIpAddress[256], clientName[256];
@@ -315,11 +326,14 @@ int main(int argc, char *argv[])
 					{
 						sprintf(reply, "D %d %d %d", deck[0 + 3*i], deck[1 + 3*i], deck[2 + 3*i]);
 						sendMessageToClient(tcpClients[i].ipAddress, tcpClients[i].port, reply);
-							for (int j = 0 ; j < 8 ; j ++) {
+							for (j = 0 ; j < 8 ; j ++) {
 								sprintf(reply, "V %d %d %d", i, j, tableCartes[i][j]);
 								sendMessageToClient(tcpClients[i].ipAddress, tcpClients[i].port, reply);
 							}
 					}
+					sprintf(reply, "M %d", joueurCourant);//envoie qui est le joueur courant
+					broadcastMessage(reply);
+
 					// On envoie ses cartes au joueur 0, ainsi que la ligne qui lui correspond dans tableCartes
 					// RAJOUTER DU CODE ICI
 
@@ -346,12 +360,56 @@ int main(int argc, char *argv[])
 		{
                 	case 'G'://"guilty" options de jeu
 				// RAJOUTER DU CODE ICI
+						sscanf(buffer, "G %d %d", &id, &i);
+						if (i == deck[12]){ //la 13 eme carte est le bon coupable
+							sprintf(reply, "W %d %d", id, i);
+							broadcastMessage(reply);
+						}
+						else{
+							sprintf(reply, "E %d %d", id, i); //le joueur c'est trompé
+							broadcastMessage(reply);
+							joueur_restant--;
+							eliminated[id] = 1;
+							if (joueur_restant == 1){
+								//il ne reste qu'un joueur donc il a gnagé
+								sprintf(reply, "W %d %d", nextPlayer(joueurCourant), deck[12]);
+								broadcastMessage(reply);
+							}
+							else {//la partie continue
+								joueurCourant = nextPlayer(joueurCourant);
+								sprintf(reply, "M %d", joueurCourant);
+								broadcastMessage(reply);
+							}
+
+						}
 				break;
                 	case 'O'://option "qui a cette carte"
 				// RAJOUTER DU CODE ICI
+						sscanf(buffer, "0 %d %d", &id, &j);
+						for (i = 0; i < 4; i++){
+							if (i != id){//on demande a un autre joueur
+								if (tableCartes[i][j] > 0)
+								{
+									sprintf(reply, "V %d %d 100", i, j); //on envoie 100 si le joueur a la carte
+									broadcastMessage(reply);}
+								else {
+									sprintf(reply, "V %d %d 0", i, j); //on envoie 0 si le joueur n'a pas la carte
+									broadcastMessage(reply);
+							}	
+						}
+					}
+						joueurCourant = nextPlayer(joueurCourant);
+						sprintf(reply, "M %d", joueurCourant);
+						broadcastMessage(reply);
 				break;
 			case 'S'://option de jeu: "toi joueur xxx combien as tu de cette carte"
 				// RAJOUTER DU CODE ICI
+				sscanf(buffer, "S %d %d %d", &id, &i, &j);
+				sprintf(reply, "V %d %d %d", i, j, tableCartes[i][j]);
+				broadcastMessage(reply);
+				joueurCourant = nextPlayer(joueurCourant);
+				sprintf(reply, "M %d", joueurCourant);
+				broadcastMessage(reply);
 				break;
                 	default:
                         	break;
