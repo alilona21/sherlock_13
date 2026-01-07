@@ -35,6 +35,10 @@ char *nbnoms[]={"Sebastian Moran", "irene Adler", "inspector Lestrade",
   "inspector Hopkins", "Sherlock Holmes", "John Watson", "Mycroft Holmes",
   "Mrs. Hudson", "Mary Morstan", "James Moriarty"};
 
+int joueurCourant;//quel joueurs doit jouer
+int joueur_restant;//combien de joueurs ne sont pas éliminés
+int eliminated[4];//liste des joueurs éliminés
+char info[256];//pour texte divers
 volatile int synchro;
 
 void *fn_serveur_tcp(void *arg)
@@ -124,7 +128,7 @@ void sendMessageToServer(char *ipAddress, int portno, char *mess)
 int main(int argc, char ** argv)
 {
 	int ret;
-	int i,j;
+	int i,j,n;
 
     int quit = 0;
     SDL_Event event;
@@ -222,6 +226,7 @@ int main(int argc, char ** argv)
    synchro=0;
    ret = pthread_create ( & thread_serveur_tcp_id, NULL, fn_serveur_tcp, NULL);//creer le thread du serveur local
 
+   sprintf(info, "Bonjour %s que le jeu commence", gName);//marche pas
     while (!quit)//boucle graphique
     {
 	if (SDL_PollEvent(&event))
@@ -318,14 +323,14 @@ int main(int argc, char ** argv)
 			// Message 'L' : le joueur recoit la liste des joueurs
 			case 'L':
 				// RAJOUTER DU CODE ICI
-				char j0[256], j1[256], j2[256], j3[256]; //les 4 joueurs
-				j0[0] = j1[0] = j2[0] = j3[0] = 0;
+				sscanf(gbuffer, "L %s %s %s %s", gNames[0], gNames[1], gNames[2], gNames[3]);
+				sprintf(info, "En attente de joueurs ...");
 				break;
 			// Message 'D' : le joueur recoit ses trois cartes
 			case 'D'://donc modifier le tableau b
 				// RAJOUTER DU CODE ICI
 				int c0, c1, c2;//numéro des cartes
-				//on recupère les nb des 3 cartes, on convertie le trexte en nombres
+				//on recupère les nb des 3 cartes, on convertie le texte en nombres
 				if (sscanf(gbuffer, "D %d %d %d", &c0, &c1, &c2) == 3) {//verif qu'on a bien 3 cartes
 					b[0] = c0;//premier carte et lien avec SDL
 					b[1] = c1;//deuxième carte
@@ -340,11 +345,17 @@ int main(int argc, char ** argv)
 			// Cela permet d'affecter goEnabled pour autoriser l'affichage du bouton go
 			case 'M':
 				// RAJOUTER DU CODE ICI
+				sscanf(gbuffer, "M %d", &joueurCourant);
+				goEnabled = (joueurCourant == gId) ? 1 : 0;
 
 				break;
 			// Message 'V' : le joueur recoit une valeur de tableCartes
 			case 'V':
 				// RAJOUTER DU CODE ICI
+				sscanf(gbuffer, "V %d %d %d", &i, &j, &n);
+				if (tableCartes[i][j] == -1 || tableCartes[i][j] == 0 || tableCartes[i][j] == 100){
+						tableCartes[i][j] = n;
+				}
 
 				break;
 		}
@@ -637,6 +648,8 @@ int main(int argc, char ** argv)
 	SDL_RenderDrawLine(renderer, 250,350,250,740);
 	SDL_RenderDrawLine(renderer, 300,350,300,740);
 
+	
+
         //SDL_RenderCopy(renderer, texture_grille, NULL, &dstrect_grille);
 	if (b[0]!=-1)
 	{
@@ -687,6 +700,18 @@ int main(int argc, char ** argv)
     		SDL_DestroyTexture(Message);
     		SDL_FreeSurface(surfaceMessage);
 		}
+
+		// Bandeau des informations
+		SDL_Surface* surfaceMessage = TTF_RenderText_Solid(Sans, info, col);
+		SDL_Texture* Message = SDL_CreateTextureFromSurface(renderer, surfaceMessage);
+		SDL_Rect Message_rect;
+		Message_rect.x = 400;
+		Message_rect.y = 600;
+		Message_rect.w = surfaceMessage->w;
+		Message_rect.h = surfaceMessage->h;
+		SDL_RenderCopy(renderer, Message, NULL, &Message_rect);
+		SDL_DestroyTexture(Message);
+		SDL_FreeSurface(surfaceMessage);
 
         SDL_RenderPresent(renderer);
     }
