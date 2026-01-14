@@ -368,7 +368,7 @@ int main(int argc, char *argv[])
 						else{
 							sprintf(reply, "E %d %d", id, i); //le joueur c'est trompé
 							broadcastMessage(reply);
-							joueur_restant--;
+							joueur_restant--;//un joueur de moins
 							eliminated[id] = 1;
 							if (joueur_restant == 1){
 								//il ne reste qu'un joueur donc il a gnagé
@@ -385,7 +385,7 @@ int main(int argc, char *argv[])
 				break;
                 	case 'O'://option "qui a cette carte"
 				// RAJOUTER DU CODE ICI
-						sscanf(buffer, "0 %d %d", &id, &j);
+						sscanf(buffer, "O %d %d", &id, &j);
 						for (i = 0; i < 4; i++){
 							if (i != id){//on demande a un autre joueur
 								if (tableCartes[i][j] > 0)
@@ -411,8 +411,9 @@ int main(int argc, char *argv[])
 				sprintf(reply, "M %d", joueurCourant);
 				broadcastMessage(reply);
 				break;
-                	default:
-                        	break;
+
+            default:
+                    break;
 		}
         }
      	close(newsockfd);

@@ -274,22 +274,27 @@ int main(int argc, char ** argv)
 				{
 					printf("go! joueur=%d objet=%d guilt=%d\n",joueurSel, objetSel, guiltSel);
 					if (guiltSel!=-1)
-					{
+					{//choix coupable
 						sprintf(sendBuffer,"G %d %d",gId, guiltSel);
+						sendMessageToServer(gServerIpAddress, gServerPort, sendBuffer);
+						goEnabled = 0;
 
 					// RAJOUTER DU CODE ICI
 
 					}
 					else if ((objetSel!=-1) && (joueurSel==-1))
-					{
+					{//demande si tout le monde a cette carte
 						sprintf(sendBuffer,"O %d %d",gId, objetSel);
-
+						sendMessageToServer(gServerIpAddress, gServerPort, sendBuffer);
+						goEnabled = 0;
 					// RAJOUTER DU CODE ICI
 
 					}
 					else if ((objetSel!=-1) && (joueurSel!=-1))
-					{
+					{//demande a une personne si elle a cette carte
 						sprintf(sendBuffer,"S %d %d %d",gId, joueurSel,objetSel);
+						sendMessageToServer(gServerIpAddress, gServerPort, sendBuffer);
+						goEnabled = 0;
 
 					// RAJOUTER DU CODE ICI
 
@@ -310,7 +315,7 @@ int main(int argc, char ** argv)
 
         if (synchro==1)
         {
-                printf("consomme |%s|\n",gbuffer);
+                printf("consomme %s",gbuffer);
 		switch (gbuffer[0])
 		{
 			// Message 'I' : le joueur recoit son Id
@@ -336,6 +341,7 @@ int main(int argc, char ** argv)
 					b[1] = c1;//deuxième carte
 					b[2] = c2;//troisième carte
 					printf("Cartes reçues : %d %d %d\n", b[0], b[1], b[2]);
+	
 				} else {
 					printf("Erreur lors de la réception des cartes\n");
 				}
@@ -346,6 +352,7 @@ int main(int argc, char ** argv)
 			case 'M':
 				// RAJOUTER DU CODE ICI
 				sscanf(gbuffer, "M %d", &joueurCourant);
+				sprintf(info, "A %s de jouer", gNames[joueurCourant]);
 				goEnabled = (joueurCourant == gId) ? 1 : 0;
 
 				break;
@@ -358,6 +365,20 @@ int main(int argc, char ** argv)
 				}
 
 				break;
+			case 'W':
+				sscanf(gbuffer, "W %d %s", &i, &nbnoms[12]);
+				sprintf(info, "%s a gagné! le coupable était %s!", gNames[i], nbnoms[12]);
+				joueurCourant = -1;//stop le jeu
+
+				break;
+			case 'E':
+			    sscanf(gbuffer, "E %d %d", &i, &j);
+			    sprintf(info, "%s est éliminé! %s est innocent!", gNames[i], nbnoms[j]);
+			    eliminated[i] = 1;
+			    joueur_restant--;//un joueur de moins
+				guiltGuess[j] = 1;
+
+			    break;
 		}
 		synchro=0;
         }
