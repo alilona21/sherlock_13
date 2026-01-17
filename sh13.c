@@ -28,6 +28,7 @@ int tableCartes[4][8];
 int b[3];
 int goEnabled;
 int connectEnabled;
+int coupable; //carte du coupable
 
 char *nbobjets[]={"5","5","5","5","4","3","3","3"};
 char *nbnoms[]={"Sebastian Moran", "irene Adler", "inspector Lestrade",
@@ -373,10 +374,9 @@ int main(int argc, char ** argv)
 
 				break;
 			case 'W':
-				sprintf(info2, " ");//affiche rien
-				sscanf(gbuffer, "W %d %s", &i, nbnoms[12]);
-				sprintf(info2, "%s est elimine! %s est innocent!", gNames[i], nbnoms[j]);
-				//joueurCourant = -1;//stop le jeu
+				sscanf(gbuffer, "W %d %d", &i, &coupable);
+				sprintf(info2, "%s a gagne! %s est coupable!", gNames[i], nbnoms[coupable]);
+				joueurCourant = -1;//stop le jeu
 
 				break;
 			case 'E':
