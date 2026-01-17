@@ -38,7 +38,7 @@ void melangerDeck()
         int i;
         int index1,index2,tmp;
 
-        for (i=0;i<1000;i++)//1000 échanges pour mélanger
+        for (i=0;i<1200;i++)//1000 échanges pour mélanger
         {
                 index1=rand()%13;
                 index2=rand()%13;

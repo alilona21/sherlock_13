@@ -159,7 +159,7 @@ int main(int argc, char ** argv)
  
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, 0);
 
-    SDL_Surface *deck[13],*objet[8],*gobutton,*connectbutton;
+    SDL_Surface *deck[13],*objet[8],*gobutton,*connectbutton,*logo;
 
 	deck[0] = IMG_Load("SH13_0.png");
 	deck[1] = IMG_Load("SH13_1.png");
@@ -187,6 +187,8 @@ int main(int argc, char ** argv)
 	gobutton = IMG_Load("gobutton.png");
 	connectbutton = IMG_Load("connectbutton.png");
 
+	logo = IMG_Load("logo.png");//affichage
+
 	strcpy(gNames[0],"-");
 	strcpy(gNames[1],"-");
 	strcpy(gNames[2],"-");
@@ -210,7 +212,7 @@ int main(int argc, char ** argv)
 	goEnabled=0;
 	connectEnabled=1;
 //pas de surface dans la fnetres mais des textures, c'est pourquoi on change
-    SDL_Texture *texture_deck[13],*texture_gobutton,*texture_connectbutton,*texture_objet[8];
+    SDL_Texture *texture_deck[13],*texture_gobutton,*texture_connectbutton, *texture_logo,*texture_objet[8];
 
 	for (i=0;i<13;i++)
 		texture_deck[i] = SDL_CreateTextureFromSurface(renderer, deck[i]);
@@ -219,6 +221,7 @@ int main(int argc, char ** argv)
 
     texture_gobutton = SDL_CreateTextureFromSurface(renderer, gobutton);
     texture_connectbutton = SDL_CreateTextureFromSurface(renderer, connectbutton);
+	texture_logo = SDL_CreateTextureFromSurface(renderer, logo);
 
     TTF_Font* Sans = TTF_OpenFont("sans.ttf", 15); 
     printf("Sans=%p\n",Sans);
@@ -230,7 +233,7 @@ int main(int argc, char ** argv)
 
     sprintf(info2, "Bonjour %s que le jeu commence", gName);
 	sprintf(info, " ");
-	sprintf(pseudo, " %s", gName);
+	sprintf(pseudo, "joueur: %s", gName);
     while (!quit)//boucle graphique
     {
 	if (SDL_PollEvent(&event))
@@ -357,7 +360,6 @@ int main(int argc, char ** argv)
 				// RAJOUTER DU CODE ICI
 				sscanf(gbuffer, "M %d", &joueurCourant);
 				sprintf(info, "A %s de jouer", gNames[joueurCourant]);
-				sprintf(info2, " ");//affiche rien
 				goEnabled = (joueurCourant == gId) ? 1 : 0;
 
 				break;
@@ -371,14 +373,16 @@ int main(int argc, char ** argv)
 
 				break;
 			case 'W':
-				sscanf(gbuffer, "W %d %s", &i, &nbnoms[12]);
-				sprintf(info, "%s a gagne ! le coupable etait %s!", gNames[i], nbnoms[12]);
-				joueurCourant = -1;//stop le jeu
+				sprintf(info2, " ");//affiche rien
+				sscanf(gbuffer, "W %d %s", &i, nbnoms[12]);
+				sprintf(info2, "%s est elimine! %s est innocent!", gNames[i], nbnoms[j]);
+				//joueurCourant = -1;//stop le jeu
 
 				break;
 			case 'E':
+				sprintf(info2, " ");//affiche rien
 			    sscanf(gbuffer, "E %d %d", &i, &j);
-			    sprintf(info, "%s est elimine! %s est innocent!", gNames[i], nbnoms[j]);
+			    sprintf(info2, "%s est elimine! %s est innocent!", gNames[i], nbnoms[j]);//affiche qui est eliminer est pourquoi
 			    eliminated[i] = 1;
 			    joueur_restant--;//un joueur de moins
 				guiltGuess[j] = 1;
@@ -395,6 +399,10 @@ int main(int argc, char ** argv)
 	SDL_SetRenderDrawColor(renderer, 255, 230, 230, 230);
 	SDL_Rect rect = {0, 0, 1024, 768}; 
 	SDL_RenderFillRect(renderer, &rect);
+
+	//logo
+	SDL_Rect dstrect_logo = {320, 350, 200, 200};
+	SDL_RenderCopy(renderer, texture_logo, NULL, &dstrect_logo);
 
 	if (joueurSel!=-1)
 	{
@@ -696,7 +704,7 @@ int main(int argc, char ** argv)
 	// Le bouton go
 	if (goEnabled==1)
 	{
-        	SDL_Rect dstrect = { 500, 350, 200, 150 };
+        	SDL_Rect dstrect = { 530, 350, 200, 150 };
         	SDL_RenderCopy(renderer, texture_gobutton, NULL, &dstrect);
 	}
 	// Le bouton connect
@@ -732,7 +740,7 @@ int main(int argc, char ** argv)
 		SDL_Texture* Message = SDL_CreateTextureFromSurface(renderer, surfaceMessage);
 		SDL_Rect Message_rect;
 		Message_rect.x = 400;
-		Message_rect.y = 600;
+		Message_rect.y = 650;
 		Message_rect.w = surfaceMessage->w;
 		Message_rect.h = surfaceMessage->h;
 		SDL_RenderCopy(renderer, Message, NULL, &Message_rect);
@@ -745,7 +753,7 @@ int main(int argc, char ** argv)
 		SDL_Texture* Message2 = SDL_CreateTextureFromSurface(renderer, surfaceMessage2);
 		SDL_Rect Message_rect2;
 		Message_rect2.x = 400;
-		Message_rect2.y = 500;
+		Message_rect2.y = 600;
 		Message_rect2.w = surfaceMessage2->w;
 		Message_rect2.h = surfaceMessage2->h;
 		SDL_RenderCopy(renderer, Message2, NULL, &Message_rect2);
