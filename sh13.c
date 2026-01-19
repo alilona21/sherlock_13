@@ -9,6 +9,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#include <stdbool.h>
 
 pthread_t thread_serveur_tcp_id;
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -29,6 +30,9 @@ int b[3];
 int goEnabled;
 int connectEnabled;
 int coupable; //carte du coupable
+bool partiecommence=false;
+int gagnant = -1; //id du gagnant
+int valeur;
 
 char *nbobjets[]={"5","5","5","5","4","3","3","3"};
 char *nbnoms[]={"Sebastian Moran", "irene Adler", "inspector Lestrade",
@@ -359,6 +363,7 @@ int main(int argc, char ** argv)
 			// Cela permet d'affecter goEnabled pour autoriser l'affichage du bouton go
 			case 'M':
 				// RAJOUTER DU CODE ICI
+				partiecommence=true;//la partie commence
 				sscanf(gbuffer, "M %d", &joueurCourant);
 				sprintf(info, "A %s de jouer", gNames[joueurCourant]);
 				goEnabled = (joueurCourant == gId) ? 1 : 0;
@@ -377,6 +382,8 @@ int main(int argc, char ** argv)
 				sscanf(gbuffer, "W %d %d", &i, &coupable);
 				sprintf(info2, "%s a gagne! %s est coupable!", gNames[i], nbnoms[coupable]);
 				joueurCourant = -1;//stop le jeu
+				partiecommence=false;//stopper affichage joueur courant
+				
 
 				break;
 			case 'E':
@@ -678,9 +685,9 @@ int main(int argc, char ** argv)
 
 	for (i=0;i<14;i++)
 		SDL_RenderDrawLine(renderer, 0,350+i*30,300,350+i*30);
-	SDL_RenderDrawLine(renderer, 100,350,100,740);
-	SDL_RenderDrawLine(renderer, 250,350,250,740);
-	SDL_RenderDrawLine(renderer, 300,350,300,740);
+		SDL_RenderDrawLine(renderer, 100,350,100,740);
+		SDL_RenderDrawLine(renderer, 250,350,250,740);
+		SDL_RenderDrawLine(renderer, 300,350,300,740);
 
 	
 
@@ -718,6 +725,30 @@ int main(int argc, char ** argv)
         //SDL_RenderDrawLine(renderer, 0, 0, 200, 200);
 
 	SDL_Color col = {0, 0, 0};
+
+
+	//joueur actuelle en fond bleu
+	if (partiecommence)
+	{
+		SDL_SetRenderDrawColor(renderer, 100, 150, 255, 255);
+		SDL_Rect rectJoueurCourant = {0, 90 + joueurCourant * 60, 200, 60};
+		SDL_RenderFillRect(renderer, &rectJoueurCourant);
+	}
+	if (sscanf(gbuffer, "W %d", &valeur) == 1)//affiche le gagnant en vert
+	{
+		gagnant=valeur;
+		SDL_SetRenderDrawColor(renderer, 100, 255, 100, 255);
+		SDL_Rect rectJoueurgagnant = {0, 90 + gagnant * 60, 200, 60};
+		SDL_RenderFillRect(renderer, &rectJoueurgagnant);
+	}
+	for (i=0;i<4;i++)
+		if (eliminated[i]==1)//affiche les éliminés en rouge
+		{
+			SDL_SetRenderDrawColor(renderer, 255, 100, 100, 255);
+			SDL_Rect rectJoueurElimine = {0, 90 + i * 60, 200, 60};
+			SDL_RenderFillRect(renderer, &rectJoueurElimine);
+		}
+
 	for (i=0;i<4;i++)
 		if (strlen(gNames[i])>0)
 		{
@@ -776,6 +807,8 @@ int main(int argc, char ** argv)
 		SDL_FreeSurface(surfaceMessagen);
 
         SDL_RenderPresent(renderer);
+
+
     }
  
     SDL_DestroyTexture(texture_deck[0]);
