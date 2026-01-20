@@ -8,6 +8,7 @@
 
 #include <netdb.h>
 #include <arpa/inet.h>
+#include <stdbool.h>
 
 struct _client
 {
@@ -27,6 +28,8 @@ char *nomcartes[]=
 int joueurCourant;//quel joueurs doit jouer
 int joueur_restant;//combien de joueurs ne sont pas éliminés
 int eliminated[4];//liste des joueurs éliminés
+int replayVotes[4];
+int votesCount;
 void error(const char *msg)
 {
     perror(msg);
@@ -133,6 +136,32 @@ void createTable()
 	}
 } 
 
+void resetGame() {
+	printf("Resetting game for replay...\n");
+	melangerDeck();
+	createTable();
+	joueurCourant = 0;
+	joueur_restant = 4;
+	for (int i=0; i<4; i++) {
+		eliminated[i] = 0;
+	}
+}
+
+void endGameAndProposeReplay(int winnerId, int guiltyCard) {
+	char reply[256];
+	if (winnerId != -1) {
+		sprintf(reply, "W %d %d", winnerId, guiltyCard);
+		broadcastMessage(reply);
+	}
+	fsmServer = 2; // Go to post-game/voting state
+	printf("Game over. Proposing replay.\n");
+	broadcastMessage("P"); // Propose replay
+	votesCount = 0;
+	for (int j=0; j<4; j++) {
+		replayVotes[j] = -1;
+	}
+}
+
 void printDeck()
 {
         int i,j;
@@ -190,8 +219,11 @@ void sendMessageToClient(char *clientip,int clientport,char *mess)
     serv_addr.sin_port = htons(clientport);
     if (connect(sockfd,(struct sockaddr *) &serv_addr,sizeof(serv_addr)) < 0)
         {
-                printf("ERROR connecting\n");
-                exit(1);
+                // This is not a fatal error. The client may have disconnected.
+                // Do not exit the server.
+                printf("Warning: could not connect to client %s:%d. It might be disconnected.\n", clientip, clientport);
+                close(sockfd);
+                return;
         }
 
         sprintf(buffer,"%s\n",mess);
@@ -204,7 +236,8 @@ void broadcastMessage(char *mess)//envoiyer le même message à tout le monde
 {
         int i;
 
-        for (i=0;i<nbClients;i++)
+        for (i=0;i<4;i++)
+		if (tcpClients[i].port != -1)
                 sendMessageToClient(tcpClients[i].ipAddress,
                         tcpClients[i].port,
                         mess);
@@ -265,6 +298,7 @@ int main(int argc, char *argv[])
         	strcpy(tcpClients[i].ipAddress,"localhost");
         	tcpClients[i].port=-1;
         	strcpy(tcpClients[i].name,"-");
+		eliminated[i] = 0;
 	}
 
      while (1)
@@ -289,15 +323,28 @@ int main(int argc, char *argv[])
         	{
                 	case 'C':
                         	sscanf(buffer,"%c %s %d %s", &com, clientIpAddress, &clientPort, clientName);
-                        	printf("COM=%c ipAddress=%s port=%d name=%s\n",com, clientIpAddress, clientPort, clientName);
 
-                        	// fsmServer==0 alors j'attends les connexions de tous les joueurs
-                                strcpy(tcpClients[nbClients].ipAddress,clientIpAddress);
-                                tcpClients[nbClients].port=clientPort;
-                                strcpy(tcpClients[nbClients].name,clientName);
-                                nbClients++;
+				// Chercher un emplacement libre
+				id = -1;
+				for(i=0; i<4; i++) {
+					if(tcpClients[i].port == -1) {
+						id = i;
+						break;
+					}
+				}
 
-                                printClients();
+				if (id != -1) {
+					printf("Player %s connected as player %d\n", clientName, id);
+					strcpy(tcpClients[id].ipAddress,clientIpAddress);
+					tcpClients[id].port=clientPort;
+					strcpy(tcpClients[id].name,clientName);
+					nbClients++;
+
+					printClients();
+				} else {
+					printf("Server is full, connection from %s rejected.\n", clientName);
+					break; // Ne rien faire si le serveur est plein
+				}
 
 				// rechercher l'id du joueur qui vient de se connecter
 
@@ -352,6 +399,17 @@ int main(int argc, char *argv[])
                                         fsmServer=1;
 				}
 				break;
+			case 'Q':
+				sscanf(buffer, "Q %d", &id);
+				if (id >= 0 && id < 4 && tcpClients[id].port != -1) {
+					printf("Player %s (%d) disconnected from lobby.\n", tcpClients[id].name, id);
+					strcpy(tcpClients[id].name, "-");
+					tcpClients[id].port = -1;
+					nbClients--;
+					sprintf(reply,"L %s %s %s %s", tcpClients[0].name, tcpClients[1].name, tcpClients[2].name, tcpClients[3].name);
+					broadcastMessage(reply);
+				}
+				break;
                 }
 	}
 	else if (fsmServer==1)
@@ -362,18 +420,15 @@ int main(int argc, char *argv[])
 				// RAJOUTER DU CODE ICI
 						sscanf(buffer, "G %d %d", &id, &i);
 						if (i == deck[12]){ //la 13 eme carte est le bon coupable
-							sprintf(reply, "W %d %d", id, i);
-							broadcastMessage(reply);
+							endGameAndProposeReplay(id, i);
 						}
 						else{
 							sprintf(reply, "E %d %d", id, i); //le joueur c'est trompé
 							broadcastMessage(reply);
-							joueur_restant--;//un joueur de moins
 							eliminated[id] = 1;
+							joueur_restant--;//un joueur de moins
 							if (joueur_restant == 1){
-								//il ne reste qu'un joueur donc il a gnagé
-								sprintf(reply, "W %d %d", nextPlayer(joueurCourant), deck[12]);
-								broadcastMessage(reply);
+								endGameAndProposeReplay(nextPlayer(joueurCourant), deck[12]);
 							}
 							else {//la partie continue
 								joueurCourant = nextPlayer(joueurCourant);
@@ -411,11 +466,102 @@ int main(int argc, char *argv[])
 				sprintf(reply, "M %d", joueurCourant);
 				broadcastMessage(reply);
 				break;
+			case 'Q':
+				sscanf(buffer, "Q %d", &id);
+				if (eliminated[id] == 0) {
+					eliminated[id] = 1;
+					joueur_restant--;
+
+					// Broadcast player quit event without revealing cards
+					sprintf(reply, "K %d", id);
+					broadcastMessage(reply);
+
+					if (joueur_restant == 1) {
+						endGameAndProposeReplay(nextPlayer(joueurCourant), deck[12]);
+					} else if (id == joueurCourant) {
+						joueurCourant = nextPlayer(joueurCourant);
+						sprintf(reply, "M %d", joueurCourant);
+						broadcastMessage(reply);
+					}
+
+				}
+				break;
 
             default:
                     break;
 		}
         }
+	else if (fsmServer == 2) // Voting state
+	{
+		switch (buffer[0])
+		{
+			case 'Y': // Vote Yes
+				sscanf(buffer, "Y %d", &id);
+				if (replayVotes[id] == -1) {
+					printf("Player %d voted YES\n", id);
+					replayVotes[id] = 1; // 1 for Yes
+					votesCount++;
+				}
+				break;
+			case 'N': // Vote No
+				sscanf(buffer, "N %d", &id);
+				if (replayVotes[id] == -1) {
+					printf("Player %d voted NO\n", id);
+					replayVotes[id] = 0; // 0 for No
+					votesCount++;
+				}
+				break;
+		}
+
+		if (votesCount == nbClients && nbClients > 0) {
+			printf("All players have voted.\n");
+			bool all_yes = true;
+			for (i=0; i<4; i++) {
+				if (tcpClients[i].port != -1 && replayVotes[i] != 1) {
+					all_yes = false;
+					break;
+				}
+			}
+
+			if (all_yes) {
+				printf("All players voted YES. Restarting game.\n");
+				resetGame();
+				broadcastMessage("R"); // Tell clients to reset
+				for (i=0; i < 4; i++) {
+					sprintf(reply, "D %d %d %d", deck[0 + 3*i], deck[1 + 3*i], deck[2 + 3*i]);
+					sendMessageToClient(tcpClients[i].ipAddress, tcpClients[i].port, reply);
+					for (j = 0 ; j < 8 ; j ++) {
+						sprintf(reply, "V %d %d %d", i, j, tableCartes[i][j]);
+						sendMessageToClient(tcpClients[i].ipAddress, tcpClients[i].port, reply);
+					}
+				}
+				sprintf(reply, "M %d", joueurCourant);
+				broadcastMessage(reply);
+				fsmServer = 1;
+			} else {
+				printf("Some players voted NO. Resetting to lobby.\n");
+
+				// Send a specific command to each client and update server state.
+				for (i=0; i<4; i++) {
+					if (tcpClients[i].port != -1) {
+						if (replayVotes[i] == 1) {
+							// Tell YES voters to go back to the lobby
+							sendMessageToClient(tcpClients[i].ipAddress, tcpClients[i].port, "B");
+						} else {
+							// Tell NO voters to close, then remove them from the server
+							sendMessageToClient(tcpClients[i].ipAddress, tcpClients[i].port, "CLOSE");
+							printf("Player %s (%d) is leaving.\n", tcpClients[i].name, i);
+							strcpy(tcpClients[i].name, "-");
+							tcpClients[i].port = -1;
+							nbClients--;
+						}
+					}
+				}
+
+				fsmServer = 0; // Server will now wait for new connections or handling disconnections.
+			}
+		}
+	}
      	close(newsockfd);
      }
      close(sockfd);

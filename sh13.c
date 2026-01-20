@@ -21,7 +21,7 @@ int gClientPort;
 char gName[256];
 char gNames[4][256];
 int gId;//id du joeur
-int joueurSel;
+int joueurSel = -1;
 int objetSel;
 int guiltSel;
 int guiltGuess[13];
@@ -29,10 +29,18 @@ int tableCartes[4][8];
 int b[3];
 int goEnabled;
 int connectEnabled;
-int coupable; //carte du coupable
-bool partiecommence=false;
+int coupable = -1; //carte du coupable
 int gagnant = -1; //id du gagnant
 int valeur;
+
+typedef enum {
+    STATE_RULES,
+    STATE_LOBBY,
+    STATE_INGAME,
+    STATE_GAMEOVER,
+    STATE_VOTE
+} GameState;
+GameState currentGameState = STATE_RULES;
 
 char *nbobjets[]={"5","5","5","5","4","3","3","3"};
 char *nbnoms[]={"Sebastian Moran", "irene Adler", "inspector Lestrade",
@@ -47,6 +55,8 @@ char info[256];//pour texte divers
 char info2[256];//pour texte divers
 char pseudo[256]; //pour afficher le nom du joueur
 volatile int synchro;
+int showQuitConfirmation = 0;
+int hasVoted = 0;
 
 void *fn_serveur_tcp(void *arg)
 {
@@ -132,6 +142,48 @@ void sendMessageToServer(char *ipAddress, int portno, char *mess)
     close(sockfd);
 }
 
+void renderText(SDL_Renderer *renderer, TTF_Font *font, const char *text, int x, int y, SDL_Color color, bool center) {
+    if (!text || strlen(text) == 0) return;
+    SDL_Surface* surfaceMessage = TTF_RenderText_Solid(font, text, color);
+    if (!surfaceMessage) {
+        printf("TTF_RenderText_Solid Error: %s\n", TTF_GetError());
+        return;
+    }
+    SDL_Texture* Message = SDL_CreateTextureFromSurface(renderer, surfaceMessage);
+    SDL_Rect Message_rect;
+    if (center)
+	    Message_rect.x = x - surfaceMessage->w / 2;
+    else
+	    Message_rect.x = x;
+    Message_rect.y = y;
+    Message_rect.w = surfaceMessage->w;
+    Message_rect.h = surfaceMessage->h;
+    SDL_RenderCopy(renderer, Message, NULL, &Message_rect);
+    SDL_DestroyTexture(Message);
+    SDL_FreeSurface(surfaceMessage);
+}
+
+void resetClientState() {
+	joueurSel = -1;
+	objetSel = -1;
+	guiltSel = -1;
+	gagnant = -1;
+	coupable = -1;
+	hasVoted = 0;
+	joueurCourant = -1;
+	goEnabled = 0;
+	
+	b[0] = -1; b[1] = -1; b[2] = -1;
+
+	for (int i=0; i<13; i++) guiltGuess[i] = 0;
+	for (int i=0; i<4; i++) {
+		for (int j=0; j<8; j++) {
+			tableCartes[i][j] = -1;
+		}
+		eliminated[i] = 0;
+	}
+}
+
 int main(int argc, char ** argv)
 {
 	int ret;
@@ -143,6 +195,7 @@ int main(int argc, char ** argv)
 	char sendBuffer[1024];
 	char lname[256];
 	int id;
+	gId = -1;
 
         if (argc<6)
         {
@@ -164,7 +217,7 @@ int main(int argc, char ** argv)
  
     SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, 0);
 
-    SDL_Surface *deck[13],*objet[8],*gobutton,*connectbutton,*logo;
+    SDL_Surface *deck[13],*objet[8],*gobutton,*connectbutton,*logo, *quitbutton;
 
 	deck[0] = IMG_Load("SH13_0.png");
 	deck[1] = IMG_Load("SH13_1.png");
@@ -191,6 +244,7 @@ int main(int argc, char ** argv)
 
 	gobutton = IMG_Load("gobutton.png");
 	connectbutton = IMG_Load("connectbutton.png");
+	quitbutton = IMG_Load("quit.png");
 
 	logo = IMG_Load("logo.png");//affichage
 
@@ -217,7 +271,7 @@ int main(int argc, char ** argv)
 	goEnabled=0;
 	connectEnabled=1;
 //pas de surface dans la fnetres mais des textures, c'est pourquoi on change
-    SDL_Texture *texture_deck[13],*texture_gobutton,*texture_connectbutton, *texture_logo,*texture_objet[8];
+    SDL_Texture *texture_deck[13],*texture_gobutton,*texture_connectbutton, *texture_logo,*texture_objet[8], *texture_quitbutton;
 
 	for (i=0;i<13;i++)
 		texture_deck[i] = SDL_CreateTextureFromSurface(renderer, deck[i]);
@@ -226,6 +280,7 @@ int main(int argc, char ** argv)
 
     texture_gobutton = SDL_CreateTextureFromSurface(renderer, gobutton);
     texture_connectbutton = SDL_CreateTextureFromSurface(renderer, connectbutton);
+	texture_quitbutton = SDL_CreateTextureFromSurface(renderer, quitbutton);
 	texture_logo = SDL_CreateTextureFromSurface(renderer, logo);
 
     TTF_Font* Sans = TTF_OpenFont("sans.ttf", 15); 
@@ -247,76 +302,105 @@ int main(int argc, char ** argv)
         	switch (event.type)
         	{
             		case SDL_QUIT:
-                		quit = 1;
+                		showQuitConfirmation = 1;
                 		break;
 			case  SDL_MOUSEBUTTONDOWN:
 				SDL_GetMouseState( &mx, &my );//renvoie la position de la souris
-				//printf("mx=%d my=%d\n",mx,my);
-				if ((mx<200) && (my<50) && (connectEnabled==1))//pour jouer
-				{//C pour connexion
-					sprintf(sendBuffer,"C %s %d %s",gClientIpAddress,gClientPort,gName);
-					sendMessageToServer(gServerIpAddress, gServerPort, sendBuffer);
-					printf("connect sent |%s|\n",sendBuffer);
-					connectEnabled=0;
-					// RAJOUTER DU CODE ICI
-//pour rejouer
-				}
-				else if ((mx>=0) && (mx<200) && (my>=90) && (my<330))
-				{
-					joueurSel=(my-90)/60;
-					guiltSel=-1;
-				}
-				else if ((mx>=200) && (mx<680) && (my>=0) && (my<90))
-				{
-					objetSel=(mx-200)/60;
-					guiltSel=-1;
-				}
-				else if ((mx>=100) && (mx<250) && (my>=350) && (my<740))
-				{
-					joueurSel=-1;
-					objetSel=-1;
-					guiltSel=(my-350)/30;
-				}
-				else if ((mx>=250) && (mx<300) && (my>=350) && (my<740))
-				{
-					int ind=(my-350)/30;
-					guiltGuess[ind]=1-guiltGuess[ind];
-				}
-				else if ((mx>=500) && (mx<700) && (my>=350) && (my<450) && (goEnabled==1))
-				{
-					printf("go! joueur=%d objet=%d guilt=%d\n",joueurSel, objetSel, guiltSel);
-					if (guiltSel!=-1)
-					{//choix coupable
-						sprintf(sendBuffer,"G %d %d",gId, guiltSel);
-						sendMessageToServer(gServerIpAddress, gServerPort, sendBuffer);
-						goEnabled = 0;
-
-					// RAJOUTER DU CODE ICI
-
+				if (showQuitConfirmation) {
+					// Popup is active, check for Oui/Non clicks
+					// "Oui" button area:
+					if (mx >= (1024/2 - 150) && mx <= (1024/2 - 50) && my >= (768/2 + 10) && my <= (768/2 + 60)) {
+						quit = 1; // Yes, quit
+						if (gId != -1) {
+							sprintf(sendBuffer, "Q %d", gId);
+							sendMessageToServer(gServerIpAddress, gServerPort, sendBuffer);
+						}
 					}
-					else if ((objetSel!=-1) && (joueurSel==-1))
-					{//demande si tout le monde a cette carte
-						sprintf(sendBuffer,"O %d %d",gId, objetSel);
-						sendMessageToServer(gServerIpAddress, gServerPort, sendBuffer);
-						goEnabled = 0;
-					// RAJOUTER DU CODE ICI
-
+					// "Non" button area:
+					if (mx >= (1024/2 + 50) && mx <= (1024/2 + 150) && my >= (768/2 + 10) && my <= (768/2 + 60)) {
+						showQuitConfirmation = 0; // No, go back to game
 					}
-					else if ((objetSel!=-1) && (joueurSel!=-1))
-					{//demande a une personne si elle a cette carte
-						sprintf(sendBuffer,"S %d %d %d",gId, joueurSel,objetSel);
+				} else if (currentGameState == STATE_VOTE && !hasVoted) {
+					// "Oui" button for replay
+					if (mx >= 1024/2 - 150 && mx <= 1024/2 - 50 && my >= 768/2 + 10 && my <= 768/2 + 60) {
+						sprintf(sendBuffer, "Y %d", gId);
 						sendMessageToServer(gServerIpAddress, gServerPort, sendBuffer);
-						goEnabled = 0;
-
-					// RAJOUTER DU CODE ICI
-
+						hasVoted = 1;
 					}
-				}
-				else
-				{
-					joueurSel=-1;
-					objetSel=-1;
-					guiltSel=-1;
+					// "Non" button for replay
+					if (mx >= 1024/2 + 50 && mx <= 1024/2 + 150 && my >= 768/2 + 10 && my <= 768/2 + 60) {
+						sprintf(sendBuffer, "N %d", gId);
+						sendMessageToServer(gServerIpAddress, gServerPort, sendBuffer);
+						hasVoted = 1;
+						quit = 1; // On ferme le jeu immédiatement
+					}
+				} else if (currentGameState == STATE_RULES) {
+					// "Jouer" button on rules screen
+					if (mx >= 1024/2 - 100 && mx <= 1024/2 + 100 && my >= 600 && my <= 650) {
+						currentGameState = STATE_LOBBY;
+						connectEnabled = 1;
+					}
+				} else {
+					//printf("mx=%d my=%d\n",mx,my);
+					if ((mx<200) && (my<50) && (connectEnabled==1))//pour jouer
+					{//C pour connexion
+						sprintf(sendBuffer,"C %s %d %s",gClientIpAddress,gClientPort,gName);
+						sendMessageToServer(gServerIpAddress, gServerPort, sendBuffer);
+						printf("connect sent |%s|\n",sendBuffer);
+						connectEnabled=0;
+					}
+					else if ((mx>=974) && (mx<=1014) && (my>=718) && (my<=758)) { // Bouton Quitter
+						showQuitConfirmation = 1;
+					}
+					else if (currentGameState != STATE_LOBBY && (mx>=0) && (mx<200) && (my>=90) && (my<330))
+					{
+						joueurSel=(my-90)/60;
+						guiltSel=-1;
+					}
+					else if ((mx>=200) && (mx<680) && (my>=0) && (my<90))
+					{
+						objetSel=(mx-200)/60;
+						guiltSel=-1;
+					}
+					else if ((mx>=100) && (mx<250) && (my>=350) && (my<740))
+					{
+						joueurSel=-1;
+						objetSel=-1;
+						guiltSel=(my-350)/30;
+					}
+					else if ((mx>=250) && (mx<300) && (my>=350) && (my<740))
+					{
+						int ind=(my-350)/30;
+						guiltGuess[ind]=1-guiltGuess[ind];
+					}
+					else if ((mx>=500) && (mx<700) && (my>=350) && (my<450) && (goEnabled==1))
+					{
+						printf("go! joueur=%d objet=%d guilt=%d\n",joueurSel, objetSel, guiltSel);
+						if (guiltSel!=-1)
+						{//choix coupable
+							sprintf(sendBuffer,"G %d %d",gId, guiltSel);
+							sendMessageToServer(gServerIpAddress, gServerPort, sendBuffer);
+							goEnabled = 0;
+						}
+						else if ((objetSel!=-1) && (joueurSel==-1))
+						{//demande si tout le monde a cette carte
+							sprintf(sendBuffer,"O %d %d",gId, objetSel);
+							sendMessageToServer(gServerIpAddress, gServerPort, sendBuffer);
+							goEnabled = 0;
+						}
+						else if ((objetSel!=-1) && (joueurSel!=-1))
+						{//demande a une personne si elle a cette carte
+							sprintf(sendBuffer,"S %d %d %d",gId, joueurSel,objetSel);
+							sendMessageToServer(gServerIpAddress, gServerPort, sendBuffer);
+							goEnabled = 0;
+						}
+					}
+					else
+					{
+						joueurSel=-1;
+						objetSel=-1;
+						guiltSel=-1;
+					}
 				}
 				break;
 			case  SDL_MOUSEMOTION:
@@ -328,6 +412,14 @@ int main(int argc, char ** argv)
         if (synchro==1)
         {
                 printf("consomme %s",gbuffer);
+
+		// Handle multi-character commands first
+		if (strncmp(gbuffer, "CLOSE", 5) == 0) {
+			printf("CLIENT: Processing 'CLOSE' command. Quitting.\n");
+			quit = 1;
+		}
+		else {
+		// Handle single-character commands
 		switch (gbuffer[0])
 		{
 			// Message 'I' : le joueur recoit son Id
@@ -363,9 +455,14 @@ int main(int argc, char ** argv)
 			// Cela permet d'affecter goEnabled pour autoriser l'affichage du bouton go
 			case 'M':
 				// RAJOUTER DU CODE ICI
-				partiecommence=true;//la partie commence
 				sscanf(gbuffer, "M %d", &joueurCourant);
-				sprintf(info, "A %s de jouer", gNames[joueurCourant]);
+				currentGameState = STATE_INGAME;
+				if (joueurCourant == gId) {
+					sprintf(info, "A vous de jouer ! Faites une action et cliquez sur GO.");
+				}
+				else {
+					sprintf(info, "C'est au tour de %s de jouer...", gNames[joueurCourant]);
+				}
 				goEnabled = (joueurCourant == gId) ? 1 : 0;
 
 				break;
@@ -381,8 +478,9 @@ int main(int argc, char ** argv)
 			case 'W':
 				sscanf(gbuffer, "W %d %d", &i, &coupable);
 				sprintf(info2, "%s a gagne! %s est coupable!", gNames[i], nbnoms[coupable]);
-				joueurCourant = -1;//stop le jeu
-				partiecommence=false;//stopper affichage joueur courant
+				currentGameState = STATE_GAMEOVER;
+				goEnabled = 0;
+				gagnant = i;
 				
 
 				break;
@@ -395,6 +493,31 @@ int main(int argc, char ** argv)
 				guiltGuess[j] = 1;
 
 			    break;
+			case 'K':
+				{
+					int quit_id;
+					sscanf(gbuffer, "K %d", &quit_id);
+					if (eliminated[quit_id] == 0) {
+						joueur_restant--;
+						eliminated[quit_id] = 1;
+						sprintf(info2, "%s a quitte la partie.", gNames[quit_id]);
+					}
+				}
+				break;
+			case 'P': // Propose replay
+				currentGameState = STATE_VOTE;
+				hasVoted = 0;
+				break;
+			case 'R': // Reset for new game
+				resetClientState();
+				currentGameState = STATE_INGAME;
+				break;
+			case 'B': // Back to lobby
+				resetClientState();
+				currentGameState = STATE_LOBBY;
+				sprintf(info, "En attente de nouveaux joueurs...");
+				break;
+		}
 		}
 		synchro=0;
         }
@@ -407,66 +530,75 @@ int main(int argc, char ** argv)
 	SDL_Rect rect = {0, 0, 1024, 768}; 
 	SDL_RenderFillRect(renderer, &rect);
 
-	//logo
-	SDL_Rect dstrect_logo = {320, 350, 200, 200};
-	SDL_RenderCopy(renderer, texture_logo, NULL, &dstrect_logo);
+	if (currentGameState == STATE_RULES) {
+		SDL_Color col = {0, 0, 0};
+		// Background box
+		SDL_SetRenderDrawColor(renderer, 240, 240, 240, 255);
+		SDL_Rect rulesBg = {100, 100, 1024 - 200, 768 - 250};
+		SDL_RenderFillRect(renderer, &rulesBg);
+		SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+		SDL_RenderDrawRect(renderer, &rulesBg);
+
+		// Title
+		renderText(renderer, Sans, "Regles du jeu Sherlock 13", 1024/2, 120, col, true);
+
+		// Rules text
+		renderText(renderer, Sans, "Le but est de trouver le coupable parmi les 13 suspects.", 120, 180, col, false);
+		renderText(renderer, Sans, "Chaque joueur a 3 cartes. La 13eme carte, mise de cote, est le coupable.", 120, 210, col, false);
+		renderText(renderer, Sans, "A votre tour, vous pouvez effectuer UNE action :", 120, 250, col, false);
+		renderText(renderer, Sans, "1. Interroger tout le monde : 'Qui a cet indice ?' (clic sur un indice en haut).", 140, 280, col, false);
+		renderText(renderer, Sans, "2. Interroger un joueur : 'Combien as-tu de cartes avec cet indice ?' (clic sur un joueur, puis un indice).", 140, 310, col, false);
+		renderText(renderer, Sans, "3. Porter une accusation : 'Je pense que le coupable est...' (clic sur un suspect en bas a gauche).", 140, 340, col, false);
+		renderText(renderer, Sans, "Une fausse accusation vous elimine de la partie !", 120, 380, col, false);
+		renderText(renderer, Sans, "Le dernier joueur en lice ou le premier a trouver le coupable gagne.", 120, 410, col, false);
+
+		// "Jouer" button
+		SDL_Rect playButton = {1024/2 - 100, 600, 200, 50};
+		SDL_SetRenderDrawColor(renderer, 100, 220, 100, 255);
+		SDL_RenderFillRect(renderer, &playButton);
+		renderText(renderer, Sans, "Jouer !", 1024/2, 615, col, true);
+
+	} else { // Game display (Lobby, In-Game, Game Over)
+
+	//logo in lobby
+	if (currentGameState == STATE_LOBBY) {
+		SDL_Rect dstrect_logo = {320, 250, 400, 400};
+		SDL_RenderCopy(renderer, texture_logo, NULL, &dstrect_logo);
+	}
 
 	if (joueurSel!=-1)
 	{
 		SDL_SetRenderDrawColor(renderer, 255, 180, 180, 255);
 		SDL_Rect rect1 = {0, 90+joueurSel*60, 200 , 60}; 
 		SDL_RenderFillRect(renderer, &rect1);
-	}	
+	}
 
 	if (objetSel!=-1)
 	{
 		SDL_SetRenderDrawColor(renderer, 180, 255, 180, 255);
 		SDL_Rect rect1 = {200+objetSel*60, 0, 60 , 90}; 
 		SDL_RenderFillRect(renderer, &rect1);
-	}	
+	}
 
 	if (guiltSel!=-1)
 	{
 		SDL_SetRenderDrawColor(renderer, 180, 180, 255, 255);
 		SDL_Rect rect1 = {100, 350+guiltSel*30, 150 , 30}; 
 		SDL_RenderFillRect(renderer, &rect1);
-	}	
-
-	{
-        SDL_Rect dstrect_pipe = { 210, 10, 40, 40 };
-        SDL_RenderCopy(renderer, texture_objet[0], NULL, &dstrect_pipe);
-        SDL_Rect dstrect_ampoule = { 270, 10, 40, 40 };
-        SDL_RenderCopy(renderer, texture_objet[1], NULL, &dstrect_ampoule);
-        SDL_Rect dstrect_poing = { 330, 10, 40, 40 };
-        SDL_RenderCopy(renderer, texture_objet[2], NULL, &dstrect_poing);
-        SDL_Rect dstrect_couronne = { 390, 10, 40, 40 };
-        SDL_RenderCopy(renderer, texture_objet[3], NULL, &dstrect_couronne);
-        SDL_Rect dstrect_carnet = { 450, 10, 40, 40 };
-        SDL_RenderCopy(renderer, texture_objet[4], NULL, &dstrect_carnet);
-        SDL_Rect dstrect_collier = { 510, 10, 40, 40 };
-        SDL_RenderCopy(renderer, texture_objet[5], NULL, &dstrect_collier);
-        SDL_Rect dstrect_oeil = { 570, 10, 40, 40 };
-        SDL_RenderCopy(renderer, texture_objet[6], NULL, &dstrect_oeil);
-        SDL_Rect dstrect_crane = { 630, 10, 40, 40 };
-        SDL_RenderCopy(renderer, texture_objet[7], NULL, &dstrect_crane);
 	}
 
-        SDL_Color col1 = {0, 0, 0};
-        for (i=0;i<8;i++)
-        {
-                SDL_Surface* surfaceMessage = TTF_RenderText_Solid(Sans, nbobjets[i], col1);
-                SDL_Texture* Message = SDL_CreateTextureFromSurface(renderer, surfaceMessage);
+	// Affichage des icones des objets
+	for (i = 0; i < 8; i++) {
+		SDL_Rect dstrect_objet = { 210 + i * 60, 10, 40, 40 };
+		SDL_RenderCopy(renderer, texture_objet[i], NULL, &dstrect_objet);
+	}
 
-                SDL_Rect Message_rect; //create a rect
-                Message_rect.x = 230+i*60;  //controls the rect's x coordinate 
-                Message_rect.y = 50; // controls the rect's y coordinte
-                Message_rect.w = surfaceMessage->w; // controls the width of the rect
-                Message_rect.h = surfaceMessage->h; // controls the height of the rect
-
-                SDL_RenderCopy(renderer, Message, NULL, &Message_rect);
-                SDL_DestroyTexture(Message);
-                SDL_FreeSurface(surfaceMessage);
-        }
+    // Affichage des comptes des objets
+	SDL_Color col1 = {0, 0, 0};
+	for (i=0;i<8;i++)
+	{
+		renderText(renderer, Sans, nbobjets[i], 230 + i * 60, 50, col1, true);
+	}
 
         for (i=0;i<13;i++)
         {
@@ -708,111 +840,131 @@ int main(int argc, char ** argv)
         	SDL_RenderCopy(renderer, texture_deck[b[2]], NULL, &dstrect);
 	}
 
-	// Le bouton go
-	if (goEnabled==1)
-	{
-        	SDL_Rect dstrect = { 530, 350, 200, 150 };
-        	SDL_RenderCopy(renderer, texture_gobutton, NULL, &dstrect);
-	}
 	// Le bouton connect
 	if (connectEnabled==1)
 	{
         	SDL_Rect dstrect = { 0, 0, 200, 50 };
         	SDL_RenderCopy(renderer, texture_connectbutton, NULL, &dstrect);
 	}
-
-        //SDL_SetRenderDrawColor(renderer, 255, 0, 0, SDL_ALPHA_OPAQUE);
-        //SDL_RenderDrawLine(renderer, 0, 0, 200, 200);
+	// Le bouton go
+	if (goEnabled==1)
+	{
+        	SDL_Rect dstrect = { 530, 350, 200, 150 };
+        	SDL_RenderCopy(renderer, texture_gobutton, NULL, &dstrect);
+	}
 
 	SDL_Color col = {0, 0, 0};
 
-
-	//joueur actuelle en fond bleu
-	if (partiecommence)
+	// Affichage des joueurs et de leur statut
+	if (currentGameState == STATE_INGAME)
 	{
 		SDL_SetRenderDrawColor(renderer, 100, 150, 255, 255);
 		SDL_Rect rectJoueurCourant = {0, 90 + joueurCourant * 60, 200, 60};
 		SDL_RenderFillRect(renderer, &rectJoueurCourant);
 	}
-	if (sscanf(gbuffer, "W %d", &valeur) == 1)//affiche le gagnant en vert
+	if (gagnant != -1)
 	{
-		gagnant=valeur;
 		SDL_SetRenderDrawColor(renderer, 100, 255, 100, 255);
 		SDL_Rect rectJoueurgagnant = {0, 90 + gagnant * 60, 200, 60};
 		SDL_RenderFillRect(renderer, &rectJoueurgagnant);
 	}
-	for (i=0;i<4;i++)
-		if (eliminated[i]==1)//affiche les éliminés en rouge
+	for (i=0; i<4; i++)
+	{
+		if (eliminated[i] == 1)
 		{
 			SDL_SetRenderDrawColor(renderer, 255, 100, 100, 255);
 			SDL_Rect rectJoueurElimine = {0, 90 + i * 60, 200, 60};
 			SDL_RenderFillRect(renderer, &rectJoueurElimine);
 		}
+	}
 
-	for (i=0;i<4;i++)
-		if (strlen(gNames[i])>0)
-		{
-		SDL_Surface* surfaceMessage = TTF_RenderText_Solid(Sans, gNames[i], col);
-		SDL_Texture* Message = SDL_CreateTextureFromSurface(renderer, surfaceMessage);
+	// Noms des joueurs
+	for (i=0;i<4;i++) {
+		renderText(renderer, Sans, gNames[i], 10, 110+i*60, col, false);
+    }
 
-		SDL_Rect Message_rect; //create a rect
-		Message_rect.x = 10;  //controls the rect's x coordinate 
-		Message_rect.y = 110+i*60; // controls the rect's y coordinte
-		Message_rect.w = surfaceMessage->w; // controls the width of the rect
-		Message_rect.h = surfaceMessage->h; // controls the height of the rect
+	// Bandeaux d'informations
+	renderText(renderer, Sans, info, 400, 650, col, false);
+	renderText(renderer, Sans, info2, 400, 600, col, false);
 
-		SDL_RenderCopy(renderer, Message, NULL, &Message_rect);
-    		SDL_DestroyTexture(Message);
-    		SDL_FreeSurface(surfaceMessage);
+	// Affichage du nom du joueur
+	renderText(renderer, Sans, pseudo, 50, 50, col, false);
+
+	// Bouton Quitter
+	SDL_Rect quitButtonRect = {974, 718, 40, 40};
+	SDL_RenderCopy(renderer, texture_quitbutton, NULL, &quitButtonRect);
+
+	// Popup de confirmation pour quitter
+	if (showQuitConfirmation) {
+		// Fond assombri
+		SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+		SDL_SetRenderDrawColor(renderer, 0, 0, 0, 180);
+		SDL_Rect screenRect = {0, 0, 1024, 768};
+		SDL_RenderFillRect(renderer, &screenRect);
+		SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+
+		// Boîte de dialogue
+		SDL_Rect popupRect = {1024/2 - 250, 768/2 - 75, 500, 150};
+		SDL_SetRenderDrawColor(renderer, 220, 220, 220, 255);
+		SDL_RenderFillRect(renderer, &popupRect);
+		SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+		SDL_RenderDrawRect(renderer, &popupRect);
+
+		renderText(renderer, Sans, "Voulez-vous vraiment quitter ?", 1024/2, 768/2 - 45, col, true);
+
+		SDL_Rect yesRect = {1024/2 - 150, 768/2 + 10, 100, 50};
+		SDL_SetRenderDrawColor(renderer, 100, 220, 100, 255);
+		SDL_RenderFillRect(renderer, &yesRect);
+		renderText(renderer, Sans, "Oui", 1024/2 - 100, 768/2 + 25, col, true);
+
+		SDL_Rect noRect = {1024/2 + 50, 768/2 + 10, 100, 50};
+		SDL_SetRenderDrawColor(renderer, 220, 100, 100, 255);
+		SDL_RenderFillRect(renderer, &noRect);
+		renderText(renderer, Sans, "Non", 1024/2 + 100, 768/2 + 25, col, true);
+	}
+
+	if (currentGameState == STATE_VOTE) {
+		// Fond assombri
+		SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+		SDL_SetRenderDrawColor(renderer, 0, 0, 0, 180);
+		SDL_Rect screenRect = {0, 0, 1024, 768};
+		SDL_RenderFillRect(renderer, &screenRect);
+		SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+
+		// Boîte de dialogue
+		SDL_Rect popupRect = {1024/2 - 250, 768/2 - 75, 500, 150};
+		SDL_SetRenderDrawColor(renderer, 220, 220, 220, 255);
+		SDL_RenderFillRect(renderer, &popupRect);
+		SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+		SDL_RenderDrawRect(renderer, &popupRect);
+
+		renderText(renderer, Sans, "Voulez-vous rejouer ?", 1024/2, 768/2 - 45, col, true);
+
+		if (!hasVoted) {
+			SDL_Rect yesRect = {1024/2 - 150, 768/2 + 10, 100, 50};
+			SDL_SetRenderDrawColor(renderer, 100, 220, 100, 255);
+			SDL_RenderFillRect(renderer, &yesRect);
+			renderText(renderer, Sans, "Oui", 1024/2 - 100, 768/2 + 25, col, true);
+
+			SDL_Rect noRect = {1024/2 + 50, 768/2 + 10, 100, 50};
+			SDL_SetRenderDrawColor(renderer, 220, 100, 100, 255);
+			SDL_RenderFillRect(renderer, &noRect);
+			renderText(renderer, Sans, "Non", 1024/2 + 100, 768/2 + 25, col, true);
+		} else {
+			renderText(renderer, Sans, "En attente des autres joueurs...", 1024/2, 768/2 + 25, col, true);
 		}
+	}
 
-		// Bandeau des informations
-		SDL_Surface* surfaceMessage = TTF_RenderText_Solid(Sans, info, col);//bandeau d'info 1
-		SDL_Texture* Message = SDL_CreateTextureFromSurface(renderer, surfaceMessage);
-		SDL_Rect Message_rect;
-		Message_rect.x = 400;
-		Message_rect.y = 650;
-		Message_rect.w = surfaceMessage->w;
-		Message_rect.h = surfaceMessage->h;
-		SDL_RenderCopy(renderer, Message, NULL, &Message_rect);
-		SDL_DestroyTexture(Message);
-		SDL_FreeSurface(surfaceMessage);
-		
-		SDL_RenderPresent(renderer);
-
-		SDL_Surface* surfaceMessage2 = TTF_RenderText_Solid(Sans, info2, col);//bandeau d'info 2
-		SDL_Texture* Message2 = SDL_CreateTextureFromSurface(renderer, surfaceMessage2);
-		SDL_Rect Message_rect2;
-		Message_rect2.x = 400;
-		Message_rect2.y = 600;
-		Message_rect2.w = surfaceMessage2->w;
-		Message_rect2.h = surfaceMessage2->h;
-		SDL_RenderCopy(renderer, Message2, NULL, &Message_rect2);
-		SDL_DestroyTexture(Message2);
-		SDL_FreeSurface(surfaceMessage2);
-
+	} // End of game display
+		// On affiche le rendu final une seule fois par tour de boucle
         SDL_RenderPresent(renderer);
-
-
-
-		SDL_Surface* surfaceMessagen = TTF_RenderText_Solid(Sans, pseudo, col);//affichage du nom du joueur en haut à gauche
-		SDL_Texture* Messagen = SDL_CreateTextureFromSurface(renderer, surfaceMessagen);
-		SDL_Rect Message_rectn;
-		Message_rectn.x = 50;
-		Message_rectn.y = 50;
-		Message_rectn.w = surfaceMessagen->w;
-		Message_rectn.h = surfaceMessagen->h;
-		SDL_RenderCopy(renderer, Messagen, NULL, &Message_rectn);
-		SDL_DestroyTexture(Messagen);
-		SDL_FreeSurface(surfaceMessagen);
-
-        SDL_RenderPresent(renderer);
-
 
     }
  
     SDL_DestroyTexture(texture_deck[0]);
     SDL_DestroyTexture(texture_deck[1]);
+    SDL_DestroyTexture(texture_quitbutton);
+    SDL_FreeSurface(quitbutton);
     SDL_FreeSurface(deck[0]);
     SDL_FreeSurface(deck[1]);
     SDL_DestroyRenderer(renderer);
